@@ -1,4 +1,4 @@
-/* @source cursor @line_count 138 @branch main */
+/* @source cursor @line_count 142 @branch main */
 import AppKit
 import SwiftUI
 
@@ -135,8 +135,14 @@ final class ClipboardPanelController {
     private func pasteItem(_ item: ClipboardItem) {
         history.markUsed(item: item)
 
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(item.content, forType: .string)
+        if item.isImage, let filename = item.imageFileName {
+            // 图片：从磁盘读回写入粘贴板
+            guard ImageStorage.shared.putOnPasteboard(filename: filename) else { return }
+        } else {
+            // 文本
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(item.content, forType: .string)
+        }
 
         hidePanel()
 

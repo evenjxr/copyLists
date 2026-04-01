@@ -1,14 +1,15 @@
-/* @source cursor @line_count 342 @branch main */
+/* @source cursor @line_count 398 @branch main */
 import SwiftUI
 import AppKit
 import Combine
 
 // MARK: - 内容类型
 enum ContentKind: CaseIterable, Equatable, Hashable {
-    case url, email, filePath, code, text
+    case image, url, email, filePath, code, text
 
     var icon: String {
         switch self {
+        case .image:    return "photo.fill"
         case .url:      return "link.circle.fill"
         case .email:    return "envelope.circle.fill"
         case .filePath: return "folder.circle.fill"
@@ -19,6 +20,7 @@ enum ContentKind: CaseIterable, Equatable, Hashable {
 
     var filterIcon: String {
         switch self {
+        case .image:    return "photo"
         case .url:      return "link"
         case .email:    return "envelope"
         case .filePath: return "folder"
@@ -29,6 +31,7 @@ enum ContentKind: CaseIterable, Equatable, Hashable {
 
     var label: String {
         switch self {
+        case .image:    return "截图"
         case .url:      return "URL"
         case .email:    return "邮箱"
         case .filePath: return "路径"
@@ -39,6 +42,7 @@ enum ContentKind: CaseIterable, Equatable, Hashable {
 
     var color: Color {
         switch self {
+        case .image:    return Color(red: 0.99, green: 0.45, blue: 0.40)
         case .url:      return Color(red: 0.00, green: 0.48, blue: 1.00)
         case .email:    return Color(red: 0.69, green: 0.32, blue: 0.87)
         case .filePath: return Color(red: 1.00, green: 0.62, blue: 0.04)
@@ -47,28 +51,25 @@ enum ContentKind: CaseIterable, Equatable, Hashable {
         }
     }
 
-    static func detect(_ text: String) -> ContentKind {
+    /// 根据完整 ClipboardItem 检测（含图片判断）
+    static func detect(item: ClipboardItem) -> ContentKind {
+        if item.isImage { return .image }
+        return detectText(item.content)
+    }
+
+    private static func detectText(_ text: String) -> ContentKind {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty else { return .text }
-
-        // URL：整体是一个 URL（协议开头 或 www. 开头，无空格）
-        let urlRx = #"^(https?|ftp)://[^\s]+"#
-        let wwwRx = #"^www\.[^\s]+\.[^\s]+"#
-        if t.range(of: urlRx, options: .regularExpression) != nil { return .url }
-        if t.range(of: wwwRx, options: .regularExpression) != nil { return .url }
-
-        // 邮箱：整体是一个邮件地址
+        let urlRx  = #"^(https?|ftp)://[^\s]+"#
+        let wwwRx  = #"^www\.[^\s]+\.[^\s]+"#
+        if t.range(of: urlRx,  options: .regularExpression) != nil { return .url }
+        if t.range(of: wwwRx,  options: .regularExpression) != nil { return .url }
         let emailRx = #"^[^\s@]+@[^\s@]+\.[^\s@]{2,}$"#
         if t.range(of: emailRx, options: .regularExpression) != nil { return .email }
-
-        // 文件路径
         if t.hasPrefix("/") || t.hasPrefix("~/") || t.hasPrefix("./") { return .filePath }
-
-        // 代码（包含明显代码特征且内容足够长）
         let codeHints = ["{", "}", "func ", "def ", "class ", "import ", "const ",
                          "let ", "var ", "=>", "->", "!=", "&&", "||", "#!/"]
         if t.count > 8 && codeHints.contains(where: { t.contains($0) }) { return .code }
-
         return .text
     }
 }
@@ -99,7 +100,7 @@ struct ContentView: View {
     private var filtered: [ClipboardItem] {
         var result = history.items
         if let kind = filterKind {
-            result = result.filter { ContentKind.detect($0.content) == kind }
+            result = result.filter { ContentKind.detect(item: $0) == kind }
         }
         let query = searchText.trimmingCharacters(in: .whitespaces)
         if !query.isEmpty {
@@ -204,7 +205,7 @@ struct ContentView: View {
                 }
 
                 ForEach(ContentKind.allCases, id: \.self) { kind in
-                    let cnt = history.items.filter { ContentKind.detect($0.content) == kind }.count
+                    let cnt = history.items.filter { ContentKind.detect(item: $0) == kind }.count
                     if cnt > 0 {
                         FilterChip(
                             label: kind.label,
@@ -377,53 +378,106 @@ struct ItemRow: View {
     let item: ClipboardItem
     let isSelected: Bool
 
-    // hover 在行内部自管理，不上报到父视图，避免触发全列表重渲染
-    @State private var isHovered = false
+    @State private var isHovered  = false
+    @State private var thumbnail: NSImage? = nil
 
-    private var kind: ContentKind { ContentKind.detect(item.content) }
+    private var kind: ContentKind { ContentKind.detect(item: item) }
 
     var body: some View {
         HStack(spacing: 0) {
+            // 左侧类型色条（图片行高度更高）
             RoundedRectangle(cornerRadius: 2)
                 .fill(kind.color)
-                .frame(width: 3, height: 36)
+                .frame(width: 3, height: item.isImage ? 64 : 36)
                 .padding(.leading, 4)
                 .padding(.trailing, 10)
 
-            VStack(alignment: .leading, spacing: 3) {
-                Text(item.previewText)
-                    .lineLimit(2)
-                    .font(.system(size: 13))
-
-                HStack(spacing: 6) {
-                    Label(kind.label, systemImage: kind.icon)
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(kind.color)
-                    Text("·").foregroundStyle(.quaternary).font(.system(size: 10))
-                    Text(relativeTime(item.lastUsed))
-                        .font(.system(size: 10))
-                        .foregroundStyle(.tertiary)
-                }
-            }
-
-            Spacer()
-
-            if item.copyCount > 1 {
-                Text("×\(item.copyCount)")
-                    .font(.system(size: 10, weight: .semibold))
-                    .padding(.horizontal, 6).padding(.vertical, 3)
-                    .background(kind.color.opacity(0.15))
-                    .foregroundStyle(kind.color)
-                    .clipShape(Capsule())
-                    .padding(.trailing, 6)
+            if item.isImage {
+                imageContent
+            } else {
+                textContent
             }
         }
         .padding(.vertical, 7)
         .background(rowBackground)
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .onHover { isHovered = $0 }
+        .onAppear { loadThumbnail() }
         .animation(.easeInOut(duration: 0.12), value: isSelected)
         .animation(.easeInOut(duration: 0.08), value: isHovered)
+    }
+
+    // MARK: - 图片内容
+    private var imageContent: some View {
+        HStack(spacing: 10) {
+            // 缩略图
+            Group {
+                if let thumb = thumbnail {
+                    Image(nsImage: thumb)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(maxHeight: 60)
+                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                } else {
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(Color.primary.opacity(0.08))
+                        .frame(width: 90, height: 60)
+                        .overlay(
+                            Image(systemName: "photo")
+                                .foregroundStyle(.tertiary)
+                        )
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(item.previewText)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.primary)
+                badgeRow
+            }
+            Spacer()
+            copyCountBadge
+        }
+    }
+
+    // MARK: - 文本内容
+    private var textContent: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(item.previewText)
+                    .lineLimit(2)
+                    .font(.system(size: 13))
+                badgeRow
+            }
+            Spacer()
+            copyCountBadge
+        }
+    }
+
+    // MARK: - 通用子视图
+    private var badgeRow: some View {
+        HStack(spacing: 6) {
+            Label(kind.label, systemImage: kind.icon)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(kind.color)
+            Text("·").foregroundStyle(.quaternary).font(.system(size: 10))
+            Text(relativeTime(item.lastUsed))
+                .font(.system(size: 10))
+                .foregroundStyle(.tertiary)
+        }
+    }
+
+    @ViewBuilder
+    private var copyCountBadge: some View {
+        if item.copyCount > 1 {
+            Text("×\(item.copyCount)")
+                .font(.system(size: 10, weight: .semibold))
+                .padding(.horizontal, 6).padding(.vertical, 3)
+                .background(kind.color.opacity(0.15))
+                .foregroundStyle(kind.color)
+                .clipShape(Capsule())
+                .padding(.trailing, 6)
+        }
     }
 
     @ViewBuilder
@@ -440,6 +494,15 @@ struct ItemRow: View {
                 .fill(Color.primary.opacity(0.05))
         } else {
             Color.clear
+        }
+    }
+
+    // MARK: - 缩略图异步加载
+    private func loadThumbnail() {
+        guard item.isImage, let filename = item.imageFileName, thumbnail == nil else { return }
+        DispatchQueue.global(qos: .userInitiated).async {
+            let img = ImageStorage.shared.thumbnail(filename: filename, maxHeight: 60)
+            DispatchQueue.main.async { thumbnail = img }
         }
     }
 
