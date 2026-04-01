@@ -1,4 +1,5 @@
 /* @source cursor @line_count 142 @branch main */
+/* @source cursor @line_count 3 @branch main */
 import AppKit
 import SwiftUI
 
@@ -65,11 +66,13 @@ final class ClipboardPanelController {
     private func interceptKey(_ event: NSEvent) -> Bool {
         let cmd = event.modifierFlags.contains(.command)
         switch event.keyCode {
-        case 126:               keyboard.send(.up);      return true   // ↑
-        case 125:               keyboard.send(.down);    return true   // ↓
-        case 36, 76:            keyboard.send(.confirm); return true   // ↵ / 小键盘 ↵
-        case 53:                keyboard.send(.escape);  return true   // ⎋
-        case 51 where cmd:      keyboard.send(.delete);  return true   // ⌘⌫ 删除条目
+        case 126:               keyboard.send(.up);          return true   // ↑
+        case 125:               keyboard.send(.down);        return true   // ↓
+        case 123:               keyboard.send(.filterLeft);  return true   // ← 切换标签
+        case 124:               keyboard.send(.filterRight); return true   // → 切换标签
+        case 36, 76:            keyboard.send(.confirm);     return true   // ↵ / 小键盘 ↵
+        case 53:                keyboard.send(.escape);      return true   // ⎋
+        case 51 where cmd:      keyboard.send(.delete);      return true   // ⌘⌫ 删除条目
         default:                return false   // 其余字符 → 正常输入到搜索框
         }
     }

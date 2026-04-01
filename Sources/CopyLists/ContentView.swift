@@ -1,4 +1,5 @@
 /* @source cursor @line_count 398 @branch main */
+/* @source cursor @line_count 18 @branch main */
 import SwiftUI
 import AppKit
 import Combine
@@ -76,7 +77,7 @@ enum ContentKind: CaseIterable, Equatable, Hashable {
 
 // MARK: - 键盘桥接
 final class KeyboardBridge: ObservableObject {
-    enum Action { case up, down, confirm, escape, delete }
+    enum Action { case up, down, confirm, escape, delete, filterLeft, filterRight }
     let keyPress = PassthroughSubject<Action, Never>()
     func send(_ action: Action) { keyPress.send(action) }
 }
@@ -281,6 +282,7 @@ struct ContentView: View {
     private var footer: some View {
         HStack(spacing: 0) {
             footerKey("↑↓",  label: "选择")
+            footerKey("←→",  label: "标签")
             footerKey("↵",   label: "粘贴")
             footerKey("⌘⌫",  label: "删除")
             footerKey("⎋",   label: "关闭")
@@ -312,10 +314,12 @@ struct ContentView: View {
         let list  = filtered
         let count = list.count
         switch action {
-        case .up:      if selectedIndex > 0           { selectedIndex -= 1 }
-        case .down:    if selectedIndex < count - 1   { selectedIndex += 1 }
-        case .confirm: guard !list.isEmpty else { return }; onSelect(list[selectedIndex])
-        case .escape:  onClose()
+        case .up:           if selectedIndex > 0         { selectedIndex -= 1 }
+        case .down:         if selectedIndex < count - 1 { selectedIndex += 1 }
+        case .confirm:      guard !list.isEmpty else { return }; onSelect(list[selectedIndex])
+        case .escape:       onClose()
+        case .filterLeft:   cycleFilter(forward: false)
+        case .filterRight:  cycleFilter(forward: true)
         case .delete:
             guard !list.isEmpty else { return }
             onDelete(list[selectedIndex])
@@ -323,6 +327,22 @@ struct ContentView: View {
                 let n = self.filtered.count
                 if self.selectedIndex >= n { self.selectedIndex = max(0, n - 1) }
             }
+        }
+    }
+
+    // MARK: - 左右切换 Filter 标签
+    private func cycleFilter(forward: Bool) {
+        // 只展示有内容的 kind，顺序与标签栏一致
+        let available: [ContentKind?] = [nil] + ContentKind.allCases.filter { kind in
+            history.items.contains { ContentKind.detect(item: $0) == kind }
+        }
+        guard available.count > 1 else { return }
+        let cur = available.firstIndex(where: { $0 == filterKind }) ?? 0
+        let next = forward
+            ? (cur + 1) % available.count
+            : (cur - 1 + available.count) % available.count
+        withAnimation(.spring(response: 0.22, dampingFraction: 0.75)) {
+            filterKind = available[next]
         }
     }
 
