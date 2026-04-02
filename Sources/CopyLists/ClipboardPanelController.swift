@@ -110,11 +110,11 @@ final class ClipboardPanelController {
         hosting.translatesAutoresizingMaskIntoConstraints = false
 
         let vibrancy = NSVisualEffectView()
-        vibrancy.material = .hudWindow
+        vibrancy.material = .windowBackground  // 最亮浅色背景
         vibrancy.blendingMode = .behindWindow
         vibrancy.state = .active
         vibrancy.wantsLayer = true
-        vibrancy.layer?.cornerRadius = 16
+        vibrancy.layer?.cornerRadius = 14
         vibrancy.layer?.masksToBounds = true
         vibrancy.addSubview(hosting)
 

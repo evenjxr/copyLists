@@ -113,17 +113,41 @@ struct ContentView: View {
         return result
     }
 
+    // 青白色调色盘
+    private let warmStart  = Color(red: 0.000, green: 0.737, blue: 0.831) // 青色  #00BCE4
+    private let warmMid    = Color(red: 0.000, green: 0.647, blue: 0.753) // 深青  #00A5C0
+    private let warmEnd    = Color(red: 0.102, green: 0.741, blue: 0.737) // 青绿  #1ABCBC
+    private let divLine    = Color(red: 0.855, green: 0.863, blue: 0.875) // #DADCE0
+    private let hoverBg    = Color(red: 0.945, green: 0.953, blue: 0.957) // #F1F3F4
+    private let selectBg   = Color(red: 1.000, green: 0.930, blue: 0.930) // 暖红浅底
+
     var body: some View {
         VStack(spacing: 0) {
-            header
-            searchBar
-            filterBar
-            Divider().opacity(0.25)
+            // ── 顶部统一渐变区（头部 + 搜索 + 筛选，一个背景从上到下消隐）──
+            VStack(spacing: 0) {
+                header
+                searchBar
+                filterBar
+            }
+            .background(
+                LinearGradient(
+                    stops: [
+                        .init(color: warmStart.opacity(0.28), location: 0.00),
+                        .init(color: warmMid.opacity(0.20),   location: 0.30),
+                        .init(color: warmEnd.opacity(0.12),   location: 0.60),
+                        .init(color: warmEnd.opacity(0.00),   location: 1.00),
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
+
+            divLine.frame(height: 1).opacity(0)   // 渐变已消隐，不需要额外分割线
             itemList
-            Divider().opacity(0.25)
+            divLine.frame(height: 1)
             footer
         }
-        .background(.clear)   // 背景由 NSVisualEffectView（AppKit 层）提供，此处透明
+        .background(.clear)
         .frame(width: 480, height: 580)
         .scaleEffect(appeared ? 1 : 0.94)
         .opacity(appeared ? 1 : 0)
@@ -136,30 +160,28 @@ struct ContentView: View {
         .onChange(of: filterKind)  { _ in selectedIndex = 0 }
     }
 
-    // MARK: - 头部
+    // MARK: - 头部（浅暖色调，深色文字）
     private var header: some View {
         HStack(spacing: 10) {
             Image(systemName: "doc.on.clipboard.fill")
                 .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(LinearGradient(
-                    colors: [.blue, .purple],
-                    startPoint: .topLeading, endPoint: .bottomTrailing
-                ))
+                .foregroundStyle(warmMid)
             Text("CopyLists")
-                .font(.system(size: 16, weight: .semibold))
+                .font(.system(size: 16, weight: .bold))
+                .foregroundStyle(Color(red: 0.12, green: 0.12, blue: 0.15))
             Spacer()
             if !history.items.isEmpty {
-                Text("\(history.items.count)")
+                Text("\(history.items.count) 条")
                     .font(.system(size: 11, weight: .bold))
-                    .padding(.horizontal, 7).padding(.vertical, 3)
-                    .background(Color.primary.opacity(0.1))
+                    .padding(.horizontal, 9).padding(.vertical, 4)
+                    .background(warmMid.opacity(0.12))
+                    .foregroundStyle(warmMid)
                     .clipShape(Capsule())
-                    .foregroundStyle(.secondary)
             }
         }
         .padding(.horizontal, 16)
         .padding(.top, 14)
-        .padding(.bottom, 10)
+        .padding(.bottom, 14)
     }
 
     // MARK: - 搜索栏
@@ -167,8 +189,8 @@ struct ContentView: View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
-                .font(.system(size: 14, weight: .medium))
-            TextField("搜索记录...", text: $searchText)
+                .font(.system(size: 14, weight: .regular))
+            TextField("搜索历史记录...", text: $searchText)
                 .textFieldStyle(.plain)
                 .font(.system(size: 14))
                 .focused($searchFocused)
@@ -182,10 +204,14 @@ struct ContentView: View {
             }
         }
         .padding(.horizontal, 12).padding(.vertical, 9)
-        .background(Color.primary.opacity(0.06))
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .background(Color.white.opacity(0.92))    // 高白透明，渐变中部仍可见
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .strokeBorder(searchFocused ? warmMid : Color.primary.opacity(0.12), lineWidth: searchFocused ? 1.5 : 1)
+        )
         .padding(.horizontal, 12)
-        .padding(.bottom, 4)
+        .padding(.vertical, 8)
     }
 
     // MARK: - 类型筛选标签栏
@@ -256,6 +282,7 @@ struct ContentView: View {
                     // filter 或搜索变化时强制整列重建，彻底避免 SwiftUI 行视图复用导致 kind 显示错误
                     .id("\(filterKind?.label ?? "all")_\(searchText)")
                 }
+                .background(Color.white.opacity(0.92))   // 列表区域增亮
                 .onChange(of: selectedIndex) { newIdx in
                     let list = filtered
                     guard newIdx < list.count else { return }
@@ -375,16 +402,12 @@ struct FilterChip: View {
                     .clipShape(Capsule())
             }
             .padding(.horizontal, 10).padding(.vertical, 5)
-            .background(
-                isSelected
-                    ? color
-                    : Color.primary.opacity(0.07)
-            )
-            .foregroundStyle(isSelected ? .white : color)
+            .background(isSelected ? color : Color.primary.opacity(0.07))
+            .foregroundStyle(isSelected ? Color.white : color)
             .clipShape(Capsule())
             .overlay(
                 Capsule()
-                    .strokeBorder(isSelected ? color.opacity(0) : color.opacity(0.2), lineWidth: 1)
+                    .strokeBorder(isSelected ? Color.clear : color.opacity(0.3), lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
@@ -504,14 +527,14 @@ struct ItemRow: View {
     private var rowBackground: some View {
         if isSelected {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color.accentColor.opacity(0.18))
+                .fill(kind.color.opacity(0.12))          // 与类型色条、标签颜色一致
                 .overlay(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .strokeBorder(Color.accentColor.opacity(0.45), lineWidth: 1.5)
+                        .strokeBorder(kind.color.opacity(0.50), lineWidth: 1.5)
                 )
         } else if isHovered {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color.primary.opacity(0.05))
+                .fill(kind.color.opacity(0.06))
         } else {
             Color.clear
         }
