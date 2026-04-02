@@ -1,24 +1,35 @@
 #!/bin/bash
-# @source cursor @line_count 57 @branch main
-# 构建 CopyLists.app 包（macOS 13+）
+# @source cursor @line_count 78 @branch main
+# 构建 CopyLists.app 包（macOS 13+，Universal Binary）
+# 用法：bash build_app.sh [版本号]  默认 1.0.0
 
 set -e
 
 APP_NAME="CopyLists"
 BUNDLE_ID="com.copylists.app"
-BUILD_DIR=".build/release"
+VERSION="${1:-1.0.0}"                         # 支持外部传入版本号
+BUILD_DATE=$(date "+%Y%m%d")
 APP_BUNDLE="${APP_NAME}.app"
 ICON_SRC="AppIcon.icns"
 
-echo "▶ 编译 Release..."
-swift build -c release 2>&1
+echo "▶ 编译 arm64（Apple Silicon）..."
+swift build -c release --arch arm64 2>&1
+
+echo "▶ 编译 x86_64（Intel）..."
+swift build -c release --arch x86_64 2>&1
+
+echo "▶ 合并 Universal Binary..."
+lipo -create \
+    ".build/arm64-apple-macosx/release/${APP_NAME}" \
+    ".build/x86_64-apple-macosx/release/${APP_NAME}" \
+    -output "/tmp/${APP_NAME}_universal"
 
 echo "▶ 打包 ${APP_BUNDLE}..."
 rm -rf "${APP_BUNDLE}"
 mkdir -p "${APP_BUNDLE}/Contents/MacOS"
 mkdir -p "${APP_BUNDLE}/Contents/Resources"
 
-cp "${BUILD_DIR}/${APP_NAME}" "${APP_BUNDLE}/Contents/MacOS/"
+cp "/tmp/${APP_NAME}_universal" "${APP_BUNDLE}/Contents/MacOS/${APP_NAME}"
 
 # 复制图标
 if [ -f "${ICON_SRC}" ]; then
@@ -43,9 +54,9 @@ cat > "${APP_BUNDLE}/Contents/Info.plist" << EOF
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundleVersion</key>
-    <string>1.0.0</string>
+    <string>${VERSION}</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0</string>
+    <string>${VERSION}</string>
     <key>LSUIElement</key>
     <true/>
     <key>NSAccessibilityUsageDescription</key>
@@ -57,5 +68,5 @@ cat > "${APP_BUNDLE}/Contents/Info.plist" << EOF
 EOF
 
 echo "✅ 构建完成：${APP_BUNDLE}"
+echo "   版本：${VERSION}  日期：${BUILD_DATE}  架构：universal (arm64 + x86_64)"
 echo "   运行方式：open ${APP_BUNDLE}"
-echo "   或直接双击 Finder 中的 ${APP_BUNDLE}"
