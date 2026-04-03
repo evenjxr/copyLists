@@ -1,5 +1,4 @@
-/* @source cursor @line_count 398 @branch main */
-/* @source cursor @line_count 18 @branch main */
+/* @source cursor @line_count 643 @branch main */
 import SwiftUI
 import AppKit
 import Combine
@@ -77,7 +76,7 @@ enum ContentKind: CaseIterable, Equatable, Hashable {
 
 // MARK: - 键盘桥接
 final class KeyboardBridge: ObservableObject {
-    enum Action { case up, down, confirm, escape, delete, filterLeft, filterRight }
+    enum Action { case up, down, confirm, escape, delete, filterLeft, filterRight, pin, plainText, quickPaste(Int), favorite }
     let keyPress = PassthroughSubject<Action, Never>()
     func send(_ action: Action) { keyPress.send(action) }
 }
@@ -88,30 +87,38 @@ struct ContentView: View {
     @ObservedObject var history: ClipboardHistory
     @ObservedObject var keyboard: KeyboardBridge
 
-    var onSelect: (ClipboardItem) -> Void
-    var onClose:  () -> Void
-    var onDelete: (ClipboardItem) -> Void
+    var onSelect:    (ClipboardItem) -> Void
+    var onPin:       (ClipboardItem) -> Void
+    var onClose:     () -> Void
+    var onDelete:    (ClipboardItem) -> Void
+    var onFavorite:  (ClipboardItem) -> Void
+    var onPlainText: (ClipboardItem) -> Void
 
-    @State private var searchText    = ""
+    @State private var searchText     = ""
     @State private var filterKind: ContentKind? = nil
-    @State private var selectedIndex = 0
+    @State private var showFavorites  = false   // 收藏筛选
+    @State private var selectedIndex  = 0
     @State private var appeared = false
     @FocusState private var searchFocused: Bool
 
     private var filtered: [ClipboardItem] {
         var result = history.items
-        if let kind = filterKind {
+        if showFavorites {
+            result = result.filter { $0.isFavorite }
+        } else if let kind = filterKind {
             result = result.filter { ContentKind.detect(item: $0) == kind }
         }
         let query = searchText.trimmingCharacters(in: .whitespaces)
         if !query.isEmpty {
             let words = query.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
             result = result.filter { item in
-                words.allSatisfy { item.content.localizedCaseInsensitiveContains($0) }
+                words.allSatisfy { item.searchableText.localizedCaseInsensitiveContains($0) }
             }
         }
         return result
     }
+
+    private var favoriteCount: Int { history.items.filter { $0.isFavorite }.count }
 
     // 青白色调色盘
     private let warmStart  = Color(red: 0.000, green: 0.737, blue: 0.831) // 青色  #00BCE4
@@ -156,32 +163,76 @@ struct ContentView: View {
             withAnimation(.spring(response: 0.28, dampingFraction: 0.72)) { appeared = true }
         }
         .onReceive(keyboard.keyPress) { handleKeyboard($0) }
-        .onChange(of: searchText)  { _ in selectedIndex = 0 }
-        .onChange(of: filterKind)  { _ in selectedIndex = 0 }
+        .onChange(of: searchText)     { _ in selectedIndex = 0 }
+        .onChange(of: filterKind)     { _ in selectedIndex = 0 }
+        .onChange(of: showFavorites)  { _ in selectedIndex = 0 }
     }
 
-    // MARK: - 头部（浅暖色调，深色文字）
+    // MARK: - 头部
     private var header: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "doc.on.clipboard.fill")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(warmMid)
-            Text("CopyLists")
-                .font(.system(size: 16, weight: .bold))
-                .foregroundStyle(Color(red: 0.12, green: 0.12, blue: 0.15))
+        HStack(alignment: .center, spacing: 0) {
+            // 图标 + 产品名
+            HStack(spacing: 8) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [warmStart, warmMid],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .frame(width: 30, height: 30)
+                    Image(systemName: "doc.on.clipboard.fill")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(.white)
+                }
+
+                VStack(alignment: .leading, spacing: 1) {
+                    HStack(spacing: 0) {
+                        Text("Copy")
+                            .font(.system(size: 15, weight: .bold, design: .rounded))
+                            .foregroundStyle(Color(red: 0.10, green: 0.10, blue: 0.14))
+                        Text("Lists")
+                            .font(.system(size: 15, weight: .bold, design: .rounded))
+                            .foregroundStyle(warmMid)
+                    }
+                    Text("剪贴板历史")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(Color.secondary.opacity(0.6))
+                        .tracking(0.5)
+                }
+            }
+
             Spacer()
+
+            // 右侧条数 badge
             if !history.items.isEmpty {
-                Text("\(history.items.count) 条")
-                    .font(.system(size: 11, weight: .bold))
-                    .padding(.horizontal, 9).padding(.vertical, 4)
-                    .background(warmMid.opacity(0.12))
-                    .foregroundStyle(warmMid)
-                    .clipShape(Capsule())
+                HStack(spacing: 5) {
+                    if favoriteCount > 0 {
+                        HStack(spacing: 3) {
+                            Image(systemName: "star.fill")
+                                .font(.system(size: 9, weight: .bold))
+                            Text("\(favoriteCount)")
+                                .font(.system(size: 10, weight: .bold))
+                        }
+                        .padding(.horizontal, 7).padding(.vertical, 3)
+                        .background(Color(red: 1.00, green: 0.75, blue: 0.00).opacity(0.14))
+                        .foregroundStyle(Color(red: 0.85, green: 0.60, blue: 0.00))
+                        .clipShape(Capsule())
+                    }
+                    Text("\(history.items.count) 条")
+                        .font(.system(size: 10, weight: .semibold))
+                        .padding(.horizontal, 8).padding(.vertical, 3)
+                        .background(warmMid.opacity(0.10))
+                        .foregroundStyle(warmMid)
+                        .clipShape(Capsule())
+                }
             }
         }
         .padding(.horizontal, 16)
-        .padding(.top, 14)
-        .padding(.bottom, 14)
+        .padding(.top, 13)
+        .padding(.bottom, 10)
     }
 
     // MARK: - 搜索栏
@@ -215,41 +266,74 @@ struct ContentView: View {
     }
 
     // MARK: - 类型筛选标签栏
-    private var filterBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                // 全部
-                FilterChip(
-                    label: "全部",
-                    icon: "square.grid.2x2",
-                    color: Color(red: 0.40, green: 0.40, blue: 0.45),
-                    count: history.items.count,
-                    isSelected: filterKind == nil
-                ) {
-                    withAnimation(.spring(response: 0.22, dampingFraction: 0.75)) {
-                        filterKind = nil
-                    }
-                }
+    // chip id: "all" | "fav" | kind.label
+    private var activeChipID: String {
+        if showFavorites { return "fav" }
+        return filterKind?.label ?? "all"
+    }
 
-                ForEach(ContentKind.allCases, id: \.self) { kind in
-                    let cnt = history.items.filter { ContentKind.detect(item: $0) == kind }.count
-                    if cnt > 0 {
+    private var filterBar: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    // 全部
+                    FilterChip(
+                        label: "全部",
+                        icon: "square.grid.2x2",
+                        color: Color(red: 0.40, green: 0.40, blue: 0.45),
+                        count: history.items.count,
+                        isSelected: filterKind == nil && !showFavorites
+                    ) {
+                        withAnimation(.spring(response: 0.22, dampingFraction: 0.75)) {
+                            filterKind = nil; showFavorites = false
+                        }
+                    }
+                    .id("all")
+
+                    // 收藏
+                    if favoriteCount > 0 {
                         FilterChip(
-                            label: kind.label,
-                            icon: kind.filterIcon,
-                            color: kind.color,
-                            count: cnt,
-                            isSelected: filterKind == kind
+                            label: "收藏",
+                            icon: "star.fill",
+                            color: Color(red: 1.00, green: 0.75, blue: 0.00),
+                            count: favoriteCount,
+                            isSelected: showFavorites
                         ) {
                             withAnimation(.spring(response: 0.22, dampingFraction: 0.75)) {
-                                filterKind = (filterKind == kind) ? nil : kind
+                                showFavorites.toggle()
+                                if showFavorites { filterKind = nil }
                             }
+                        }
+                        .id("fav")
+                    }
+
+                    ForEach(ContentKind.allCases, id: \.self) { kind in
+                        let cnt = history.items.filter { ContentKind.detect(item: $0) == kind }.count
+                        if cnt > 0 {
+                            FilterChip(
+                                label: kind.label,
+                                icon: kind.filterIcon,
+                                color: kind.color,
+                                count: cnt,
+                                isSelected: !showFavorites && filterKind == kind
+                            ) {
+                                withAnimation(.spring(response: 0.22, dampingFraction: 0.75)) {
+                                    showFavorites = false
+                                    filterKind = (filterKind == kind) ? nil : kind
+                                }
+                            }
+                            .id(kind.label)
                         }
                     }
                 }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .onChange(of: activeChipID) { id in
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    proxy.scrollTo(id, anchor: .center)
+                }
+            }
         }
     }
 
@@ -265,7 +349,9 @@ struct ContentView: View {
                         ForEach(Array(filtered.enumerated()), id: \.element.id) { index, item in
                             ItemRow(
                                 item: item,
-                                isSelected: index == selectedIndex
+                                isSelected: index == selectedIndex,
+                                listIndex: index,
+                                onFavorite: { onFavorite(item) }
                             )
                             .id(item.id)
                             .contentShape(Rectangle())
@@ -273,6 +359,10 @@ struct ContentView: View {
                             .contextMenu {
                                 Button("粘贴此内容")   { onSelect(item) }
                                 Button("仅复制不粘贴") { copyOnly(item) }
+                                Button("纯文本粘贴")   { onPlainText(item) }
+                                Button("预览")         { onPin(item) }
+                                Divider()
+                                Button(item.isFavorite ? "取消收藏  ⌘S" : "收藏  ⌘S") { onFavorite(item) }
                                 Divider()
                                 Button("删除", role: .destructive) { onDelete(item) }
                             }
@@ -294,11 +384,13 @@ struct ContentView: View {
 
     // MARK: - 空状态
     private var emptyState: some View {
-        VStack(spacing: 14) {
-            Image(systemName: (searchText.isEmpty && filterKind == nil) ? "clipboard" : "magnifyingglass")
+        let isBase = searchText.isEmpty && filterKind == nil && !showFavorites
+        let isFav  = showFavorites && searchText.isEmpty
+        return VStack(spacing: 14) {
+            Image(systemName: isBase ? "clipboard" : (isFav ? "star" : "magnifyingglass"))
                 .font(.system(size: 40, weight: .light))
                 .foregroundStyle(.quaternary)
-            Text((searchText.isEmpty && filterKind == nil) ? "暂无复制记录" : "未找到匹配内容")
+            Text(isBase ? "暂无复制记录" : (isFav ? "暂无收藏内容" : "未找到匹配内容"))
                 .font(.system(size: 14))
                 .foregroundStyle(.tertiary)
         }
@@ -311,6 +403,8 @@ struct ContentView: View {
             footerKey("↑↓",  label: "选择")
             footerKey("←→",  label: "标签")
             footerKey("↵",   label: "粘贴")
+            footerKey("⌘P",  label: "预览")
+            footerKey("⌘S",  label: "收藏")
             footerKey("⌘⌫",  label: "删除")
             footerKey("⎋",   label: "关闭")
             Spacer()
@@ -347,6 +441,18 @@ struct ContentView: View {
         case .escape:       onClose()
         case .filterLeft:   cycleFilter(forward: false)
         case .filterRight:  cycleFilter(forward: true)
+        case .pin:
+            guard !list.isEmpty else { return }
+            onPin(list[selectedIndex])
+        case .favorite:
+            guard !list.isEmpty else { return }
+            onFavorite(list[selectedIndex])
+        case .plainText:
+            guard !list.isEmpty else { return }
+            onPlainText(list[selectedIndex])
+        case .quickPaste(let idx):
+            guard idx < list.count else { return }
+            onSelect(list[idx])
         case .delete:
             guard !list.isEmpty else { return }
             onDelete(list[selectedIndex])
@@ -358,18 +464,28 @@ struct ContentView: View {
     }
 
     // MARK: - 左右切换 Filter 标签
+    // 用 Int 标识：-1=收藏, 0=全部, 1..N=ContentKind 顺序
     private func cycleFilter(forward: Bool) {
-        // 只展示有内容的 kind，顺序与标签栏一致
-        let available: [ContentKind?] = [nil] + ContentKind.allCases.filter { kind in
+        var tabs: [Int] = [0]   // 0 = 全部
+        if favoriteCount > 0 { tabs.append(-1) }
+        let kinds = ContentKind.allCases.filter { kind in
             history.items.contains { ContentKind.detect(item: $0) == kind }
         }
-        guard available.count > 1 else { return }
-        let cur = available.firstIndex(where: { $0 == filterKind }) ?? 0
-        let next = forward
-            ? (cur + 1) % available.count
-            : (cur - 1 + available.count) % available.count
+        tabs += kinds.enumerated().map { $0.offset + 1 }
+
+        guard tabs.count > 1 else { return }
+        let curTag: Int = showFavorites ? -1 : (filterKind.flatMap { k in kinds.firstIndex(of: k).map { $0 + 1 } } ?? 0)
+        let curIdx = tabs.firstIndex(of: curTag) ?? 0
+        let nextIdx = forward ? (curIdx + 1) % tabs.count : (curIdx - 1 + tabs.count) % tabs.count
+        let nextTag = tabs[nextIdx]
         withAnimation(.spring(response: 0.22, dampingFraction: 0.75)) {
-            filterKind = available[next]
+            if nextTag == -1 {
+                showFavorites = true; filterKind = nil
+            } else if nextTag == 0 {
+                showFavorites = false; filterKind = nil
+            } else {
+                showFavorites = false; filterKind = kinds[nextTag - 1]
+            }
         }
     }
 
@@ -420,15 +536,18 @@ struct ItemRow: View {
 
     let item: ClipboardItem
     let isSelected: Bool
+    var listIndex: Int = -1
+    var onFavorite: (() -> Void)? = nil
 
-    @State private var isHovered  = false
+    @State private var isHovered    = false
     @State private var thumbnail: NSImage? = nil
+    @State private var starBounce   = false   // 收藏弹跳动画
 
     private var kind: ContentKind { ContentKind.detect(item: item) }
 
     var body: some View {
         HStack(spacing: 0) {
-            // 左侧类型色条（图片行高度更高）
+            // 左侧类型色条
             RoundedRectangle(cornerRadius: 2)
                 .fill(kind.color)
                 .frame(width: 3, height: item.isImage ? 64 : 36)
@@ -453,7 +572,6 @@ struct ItemRow: View {
     // MARK: - 图片内容
     private var imageContent: some View {
         HStack(spacing: 10) {
-            // 缩略图
             Group {
                 if let thumb = thumbnail {
                     Image(nsImage: thumb)
@@ -466,12 +584,10 @@ struct ItemRow: View {
                         .fill(Color.primary.opacity(0.08))
                         .frame(width: 90, height: 60)
                         .overlay(
-                            Image(systemName: "photo")
-                                .foregroundStyle(.tertiary)
+                            Image(systemName: "photo").foregroundStyle(.tertiary)
                         )
                 }
             }
-
             VStack(alignment: .leading, spacing: 4) {
                 Text(item.previewText)
                     .font(.system(size: 13))
@@ -479,7 +595,7 @@ struct ItemRow: View {
                 badgeRow
             }
             Spacer()
-            copyCountBadge
+            trailingActions
         }
     }
 
@@ -493,8 +609,46 @@ struct ItemRow: View {
                 badgeRow
             }
             Spacer()
-            copyCountBadge
+            trailingActions
         }
+    }
+
+    // MARK: - 右侧区域：星星 + 角标
+    private var trailingActions: some View {
+        VStack(alignment: .trailing, spacing: 4) {
+            // 五角星收藏按钮
+            Button {
+                withAnimation(.spring(response: 0.25, dampingFraction: 0.45)) {
+                    starBounce = true
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { starBounce = false }
+                onFavorite?()
+            } label: {
+                Image(systemName: item.isFavorite ? "star.fill" : "star")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(item.isFavorite
+                        ? Color(red: 1.00, green: 0.75, blue: 0.00)
+                        : Color.primary.opacity(isHovered ? 0.30 : 0.12))
+                    .scaleEffect(starBounce ? 1.35 : 1.0)
+            }
+            .buttonStyle(.plain)
+            .help(item.isFavorite ? "取消收藏" : "收藏（⌘S）")
+
+            if item.copyCount > 1 {
+                Text("×\(item.copyCount)")
+                    .font(.system(size: 10, weight: .semibold))
+                    .padding(.horizontal, 6).padding(.vertical, 3)
+                    .background(kind.color.opacity(0.15))
+                    .foregroundStyle(kind.color)
+                    .clipShape(Capsule())
+            }
+            if listIndex >= 0 && listIndex < 9 {
+                Text("⌘\(listIndex + 1)")
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundStyle(Color.primary.opacity(0.18))
+            }
+        }
+        .padding(.trailing, 8)
     }
 
     // MARK: - 通用子视图
@@ -507,19 +661,6 @@ struct ItemRow: View {
             Text(relativeTime(item.lastUsed))
                 .font(.system(size: 10))
                 .foregroundStyle(.tertiary)
-        }
-    }
-
-    @ViewBuilder
-    private var copyCountBadge: some View {
-        if item.copyCount > 1 {
-            Text("×\(item.copyCount)")
-                .font(.system(size: 10, weight: .semibold))
-                .padding(.horizontal, 6).padding(.vertical, 3)
-                .background(kind.color.opacity(0.15))
-                .foregroundStyle(kind.color)
-                .clipShape(Capsule())
-                .padding(.trailing, 6)
         }
     }
 

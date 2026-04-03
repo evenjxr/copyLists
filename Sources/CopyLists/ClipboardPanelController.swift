@@ -1,5 +1,4 @@
-/* @source cursor @line_count 142 @branch main */
-/* @source cursor @line_count 3 @branch main */
+/* @source cursor @line_count 238 @branch main */
 import AppKit
 import SwiftUI
 
@@ -29,6 +28,7 @@ final class ClipboardPanelController {
     private var panel: ClipboardPanel?
     private let history: ClipboardHistory
     private let keyboard = KeyboardBridge()
+    private let pinManager = FloatingPinManager()
     private var previousApp: NSRunningApplication?
 
     init(history: ClipboardHistory) {
@@ -51,6 +51,8 @@ final class ClipboardPanelController {
 
     func hidePanel() {
         panel?.orderOut(nil)
+        // 关闭面板后将焦点归还给之前的应用
+        previousApp?.activate(options: [])
     }
 
     func togglePanel() {
@@ -64,16 +66,27 @@ final class ClipboardPanelController {
     // MARK: - 键盘拦截（在 sendEvent 层消费，不到达 TextField）
     /// 返回 true = 已消费；返回 false = 继续正常分发
     private func interceptKey(_ event: NSEvent) -> Bool {
-        let cmd = event.modifierFlags.contains(.command)
+        let cmd   = event.modifierFlags.contains(.command)
+        let shift = event.modifierFlags.contains(.shift)
         switch event.keyCode {
         case 126:               keyboard.send(.up);          return true   // ↑
         case 125:               keyboard.send(.down);        return true   // ↓
         case 123:               keyboard.send(.filterLeft);  return true   // ← 切换标签
         case 124:               keyboard.send(.filterRight); return true   // → 切换标签
-        case 36, 76:            keyboard.send(.confirm);     return true   // ↵ / 小键盘 ↵
+        case 36, 76:
+            keyboard.send(shift ? .plainText : .confirm)     // ↵ 粘贴 / ⇧↵ 纯文本粘贴
+            return true
+        case 35 where cmd:      keyboard.send(.pin);          return true   // ⌘P 置顶悬浮
+        case 1  where cmd:      keyboard.send(.favorite);    return true   // ⌘S 收藏
         case 53:                keyboard.send(.escape);      return true   // ⎋
         case 51 where cmd:      keyboard.send(.delete);      return true   // ⌘⌫ 删除条目
-        default:                return false   // 其余字符 → 正常输入到搜索框
+        default:
+            // ⌘1~9 快速粘贴第 n 条
+            if cmd, let digit = numberKey(event.keyCode), digit >= 1 && digit <= 9 {
+                keyboard.send(.quickPaste(digit - 1))
+                return true
+            }
+            return false
         }
     }
 
@@ -98,9 +111,12 @@ final class ClipboardPanelController {
         let contentView = ContentView(
             history: history,
             keyboard: keyboard,
-            onSelect: { [weak self] item in self?.pasteItem(item) },
-            onClose:  { [weak self] in self?.hidePanel() },
-            onDelete: { [weak self] item in self?.history.removeItem(item) }
+            onSelect:    { [weak self] item in self?.pasteItem(item) },
+            onPin:       { [weak self] item in self?.pinItem(item) },
+            onClose:     { [weak self] in self?.hidePanel() },
+            onDelete:    { [weak self] item in self?.history.removeItem(item) },
+            onFavorite:  { [weak self] item in self?.history.toggleFavorite(item: item) },
+            onPlainText: { [weak self] item in self?.pastePlainText(item) }
         )
 
         // 关键：NSHostingView 默认有白色底层。
@@ -166,6 +182,49 @@ final class ClipboardPanelController {
         let up = CGEvent(keyboardEventSource: src, virtualKey: 0x09, keyDown: false)
         up?.flags = .maskCommand
         up?.post(tap: .cghidEventTap)
+    }
+
+    // MARK: - 纯文本粘贴
+    private func pastePlainText(_ item: ClipboardItem) {
+        history.markUsed(item: item)
+        let plain: String
+        if item.isImage {
+            // 图片没有纯文本，降级为普通粘贴
+            pasteItem(item); return
+        } else {
+            plain = item.content
+        }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(plain, forType: .string)
+        hidePanel()
+        guard let target = previousApp else { return }
+        target.activate(options: [])
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { self.simulatePaste() }
+    }
+
+    // MARK: - 置顶悬浮
+    private func pinItem(_ item: ClipboardItem) {
+        history.markUsed(item: item)
+        let dedupeKey: String = {
+            if item.isImage {
+                if let hash = item.contentHash { return "img:\(hash)" }
+                if let filename = item.imageFileName { return "img:\(filename)" }
+                return "img:\(item.id.uuidString)"
+            }
+            return "txt:\(item.content)"
+        }()
+        if item.isImage, let filename = item.imageFileName {
+            guard let image = ImageStorage.shared.load(filename: filename) else { return }
+            pinManager.pinImage(image, dedupeKey: dedupeKey)
+        } else {
+            pinManager.pinText(item.content, dedupeKey: dedupeKey)
+        }
+    }
+
+    private func numberKey(_ keyCode: UInt16) -> Int? {
+        // kVK_ANSI_1..9 = 18,19,20,21,23,22,26,28,25
+        let map: [UInt16: Int] = [18:1,19:2,20:3,21:4,23:5,22:6,26:7,28:8,25:9]
+        return map[keyCode]
     }
 
     // MARK: - 居中显示

@@ -1,4 +1,4 @@
-/* @source cursor @line_count 160 @branch main */
+/* @source cursor @line_count 188 @branch main */
 import Foundation
 import AppKit
 
@@ -11,8 +11,13 @@ struct ClipboardItem: Identifiable, Equatable, Codable {
     var contentHash: String?    // 图片去重用的 SHA256 前缀；文本条目为 nil
     var lastUsed: Date
     var copyCount: Int
+    var isFavorite: Bool = false
+    var ocrText: String? = nil  // Vision OCR 识别的图片文字（用于搜索）
 
     var isImage: Bool { imageFileName != nil }
+
+    // 搜索用全文：文本内容 + OCR 文字
+    var searchableText: String { content + (ocrText.map { " " + $0 } ?? "") }
 
     /// 文本条目
     init(content: String) {
@@ -53,8 +58,9 @@ final class ClipboardHistory: ObservableObject {
     private let persistenceKey = "CopyListsHistory"
     private let queue = DispatchQueue(label: "com.copylists.history", attributes: .concurrent)
 
-    init(maxSize: Int = 50) {
-        self.maxSize = maxSize
+    init(maxSize: Int = 0) {
+        let saved = UserDefaults.standard.integer(forKey: "maxHistorySize")
+        self.maxSize = (saved > 0) ? saved : (maxSize > 0 ? maxSize : 50)
         loadFromDisk()
     }
 
@@ -106,11 +112,17 @@ final class ClipboardHistory: ObservableObject {
         }
     }
 
-    // MARK: - LRU 淘汰（超容量删尾部，图片同时清理文件）
+    // MARK: - LRU 淘汰（超容量删尾部，跳过收藏项，图片同时清理文件）
     private func evict(_ list: inout [ClipboardItem]) {
-        while list.count > maxSize {
-            let tail = list.removeLast()
-            if let fn = tail.imageFileName { ImageStorage.shared.delete(filename: fn) }
+        var removed = 0
+        var i = list.count - 1
+        while list.count > maxSize && i >= 0 {
+            if !list[i].isFavorite {
+                let tail = list.remove(at: i)
+                if let fn = tail.imageFileName { ImageStorage.shared.delete(filename: fn) }
+                removed += 1
+            }
+            i -= 1
         }
     }
 
@@ -137,14 +149,52 @@ final class ClipboardHistory: ObservableObject {
         }
     }
 
-    // MARK: - 清空
+    // MARK: - 动态调整历史上限
+    func applyNewMaxSize(_ newMax: Int) {
+        queue.async(flags: .barrier) { [weak self] in
+            guard let self else { return }
+            var updated = self.items
+            self.evict(&updated)
+            DispatchQueue.main.async { self.items = updated; self.saveToDisk(updated) }
+        }
+    }
+
+    // MARK: - OCR 回填（图片识别完成后异步更新）
+    func updateOCR(filename: String, text: String) {
+        queue.async(flags: .barrier) { [weak self] in
+            guard let self else { return }
+            var updated = self.items
+            guard let idx = updated.firstIndex(where: { $0.imageFileName == filename }) else { return }
+            updated[idx].ocrText = text
+            DispatchQueue.main.async { self.items = updated; self.saveToDisk(updated) }
+        }
+    }
+
+    // MARK: - 收藏切换（收藏项永久保存，不随 LRU 淘汰；不改变排列顺序）
+    func toggleFavorite(item: ClipboardItem) {
+        queue.async(flags: .barrier) { [weak self] in
+            guard let self else { return }
+            var updated = self.items
+            guard let idx = updated.firstIndex(where: { $0.id == item.id }) else { return }
+            updated[idx].isFavorite.toggle()
+            DispatchQueue.main.async { self.items = updated; self.saveToDisk(updated) }
+        }
+    }
+
+    // MARK: - 清空（保留收藏项）
     func clearAll() {
         queue.async(flags: .barrier) { [weak self] in
             guard let self else { return }
-            self.items.forEach { if let fn = $0.imageFileName { ImageStorage.shared.delete(filename: fn) } }
+            let toDelete = self.items.filter { !$0.isFavorite }
+            toDelete.forEach { if let fn = $0.imageFileName { ImageStorage.shared.delete(filename: fn) } }
+            let kept = self.items.filter { $0.isFavorite }
             DispatchQueue.main.async {
-                self.items = []
-                UserDefaults.standard.removeObject(forKey: self.persistenceKey)
+                self.items = kept
+                if kept.isEmpty {
+                    UserDefaults.standard.removeObject(forKey: self.persistenceKey)
+                } else {
+                    self.saveToDisk(kept)
+                }
             }
         }
     }

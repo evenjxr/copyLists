@@ -1,6 +1,7 @@
-/* @source cursor @line_count 147 @branch main */
+/* @source cursor @line_count 185 @branch main */
 import AppKit
 import Carbon.HIToolbox
+import ServiceManagement
 
 class AppDelegate: NSObject, NSApplicationDelegate {
 
@@ -8,10 +9,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var panelController: ClipboardPanelController!
     private var clipboardMonitor: ClipboardMonitor!
     private(set) var history: ClipboardHistory!
+    private var settingsController = SettingsWindowController()
 
     // Carbon 热键引用
     private var hotKeyRef: EventHotKeyRef?
     private var eventHandlerRef: EventHandlerRef?
+
+    // 状态栏暂停菜单项（动态更新标题）
+    private weak var pauseMenuItem: NSMenuItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         history = ClipboardHistory(maxSize: 50)
@@ -21,6 +26,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         panelController = ClipboardPanelController(history: history)
         setupStatusItem()
         setupCarbonHotkey()
+
+        // 首次启动自动弹出主面板
+        let launchedKey = "hasLaunchedBefore"
+        if !UserDefaults.standard.bool(forKey: launchedKey) {
+            UserDefaults.standard.set(true, forKey: launchedKey)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                self.panelController.showPanel()
+            }
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -33,13 +47,27 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         guard let button = statusItem.button else { return }
-        button.image = NSImage(systemSymbolName: "doc.on.clipboard", accessibilityDescription: "CopyLists")
-        button.image?.isTemplate = true
+        updateStatusIcon()
 
         let menu = NSMenu()
+
         let showItem = NSMenuItem(title: "显示历史记录  ⌘⇧V", action: #selector(showPanel), keyEquivalent: "")
         showItem.target = self
         menu.addItem(showItem)
+
+        menu.addItem(NSMenuItem.separator())
+
+        let pauseTitle = clipboardMonitor.isPaused ? "恢复记录" : "暂停记录"
+        let pauseItem = NSMenuItem(title: pauseTitle, action: #selector(togglePause), keyEquivalent: "")
+        pauseItem.target = self
+        menu.addItem(pauseItem)
+        pauseMenuItem = pauseItem
+
+        menu.addItem(NSMenuItem.separator())
+
+        let settingsItem = NSMenuItem(title: "设置…", action: #selector(openSettings), keyEquivalent: ",")
+        settingsItem.target = self
+        menu.addItem(settingsItem)
 
         menu.addItem(NSMenuItem.separator())
 
@@ -51,6 +79,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem(title: "退出 CopyLists", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
 
         statusItem.menu = menu
+        _ = button
+    }
+
+    private func updateStatusIcon() {
+        let name = clipboardMonitor.isPaused ? "doc.on.clipboard.fill" : "doc.on.clipboard"
+        statusItem.button?.image = NSImage(systemSymbolName: name, accessibilityDescription: "CopyLists")
+        statusItem.button?.image?.isTemplate = true
     }
 
     // MARK: - Carbon 全局热键注册（不需要辅助功能权限）
@@ -133,15 +168,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     // MARK: - 面板控制
-    @objc private func showPanel() {
-        panelController.showPanel()
+    @objc private func showPanel() { panelController.showPanel() }
+    @objc private func clearHistory() { history.clearAll() }
+    func togglePanel() { panelController.togglePanel() }
+
+    // MARK: - 暂停/恢复
+    @objc private func togglePause() {
+        clipboardMonitor.isPaused.toggle()
+        let paused = clipboardMonitor.isPaused
+        pauseMenuItem?.title = paused ? "恢复记录" : "暂停记录"
+        updateStatusIcon()
     }
 
-    @objc private func clearHistory() {
-        history.clearAll()
-    }
-
-    func togglePanel() {
-        panelController.togglePanel()
+    // MARK: - 设置
+    @objc private func openSettings() {
+        settingsController.show(monitor: clipboardMonitor, history: history)
     }
 }
