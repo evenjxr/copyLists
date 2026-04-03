@@ -408,9 +408,7 @@ struct ContentView: View {
             footerKey("⌘⌫",  label: "删除")
             footerKey("⎋",   label: "关闭")
             Spacer()
-            Text("⌘⇧V 唤起")
-                .font(.system(size: 10))
-                .foregroundStyle(.quaternary)
+            footerKey("⌘⇧V", label: "唤起")
         }
         .padding(.horizontal, 14).padding(.vertical, 8)
     }
@@ -418,16 +416,24 @@ struct ContentView: View {
     private func footerKey(_ key: String, label: String) -> some View {
         HStack(spacing: 3) {
             Text(key)
-                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .font(.system(size: 10, weight: .light, design: .monospaced))
+                .foregroundStyle(Color.primary.opacity(0.65))
+                .lineLimit(1)
+                .fixedSize()
                 .padding(.horizontal, 4).padding(.vertical, 2)
                 .background(Color.primary.opacity(0.08))
                 .clipShape(RoundedRectangle(cornerRadius: 4))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 4)
+                        .strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5)
+                )
             Text(label)
-                .font(.system(size: 11))
-                .foregroundStyle(.quaternary)
+                .font(.system(size: 10))
+                .foregroundStyle(Color.secondary.opacity(0.70))
+                .lineLimit(1)
+                .fixedSize()
         }
-        .foregroundStyle(.tertiary)
-        .padding(.trailing, 10)
+        .padding(.trailing, 7)
     }
 
     // MARK: - 键盘处理
@@ -591,7 +597,7 @@ struct ItemRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(item.previewText)
                     .font(.system(size: 13))
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(Color.primary.opacity(0.70))
                 badgeRow
             }
             Spacer()
@@ -606,6 +612,7 @@ struct ItemRow: View {
                 Text(item.previewText)
                     .lineLimit(2)
                     .font(.system(size: 13))
+                    .foregroundStyle(Color.primary.opacity(0.70))
                 badgeRow
             }
             Spacer()
@@ -641,11 +648,6 @@ struct ItemRow: View {
                     .background(kind.color.opacity(0.15))
                     .foregroundStyle(kind.color)
                     .clipShape(Capsule())
-            }
-            if listIndex >= 0 && listIndex < 9 {
-                Text("⌘\(listIndex + 1)")
-                    .font(.system(size: 9, weight: .medium, design: .monospaced))
-                    .foregroundStyle(Color.primary.opacity(0.18))
             }
         }
         .padding(.trailing, 8)

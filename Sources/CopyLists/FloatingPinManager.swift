@@ -386,27 +386,17 @@ private struct PinnedTextView: View {
 
             Divider()
 
-            VStack(spacing: 0) {
-                HStack(spacing: 8) {
-                    Spacer()
-                    PinToggleButton(alwaysOnTop: $alwaysOnTop) { onToggleAlwaysOnTop($0) }
-                    Button("完成", action: onCommit)
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-
-                Divider()
-
-                HStack(spacing: 14) {
-                    textShortcutHint("⌘↩", "保存")
-                    textShortcutHint("Esc", "关闭")
-                    Spacer()
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 4)
+            HStack(spacing: 10) {
+                textShortcutHint("⌘↩", "保存")
+                textShortcutHint("Esc", "关闭")
+                Spacer()
+                PinToggleButton(alwaysOnTop: $alwaysOnTop) { onToggleAlwaysOnTop($0) }
+                Button("完成", action: onCommit)
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
             }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
             .background(Color(nsColor: .controlBackgroundColor))
         }
     }
@@ -414,15 +404,21 @@ private struct PinnedTextView: View {
     private func textShortcutHint(_ key: String, _ label: String) -> some View {
         HStack(spacing: 3) {
             Text(key)
-                .font(.system(size: 10, weight: .medium, design: .monospaced))
-                .padding(.horizontal, 4).padding(.vertical, 1)
-                .background(Color.primary.opacity(0.07))
-                .clipShape(RoundedRectangle(cornerRadius: 3))
+                .font(.system(size: 10, weight: .light, design: .monospaced))
+                .foregroundStyle(Color.primary.opacity(0.65))
+                .lineLimit(1).fixedSize()
+                .padding(.horizontal, 4).padding(.vertical, 2)
+                .background(Color.primary.opacity(0.08))
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 4)
+                        .strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5)
+                )
             Text(label)
                 .font(.system(size: 10))
-                .foregroundStyle(.quaternary)
+                .foregroundStyle(Color.secondary.opacity(0.70))
+                .lineLimit(1).fixedSize()
         }
-        .foregroundStyle(.tertiary)
     }
 }
 
@@ -688,15 +684,21 @@ private struct PinnedImageView: View {
     private func shortcutHint(_ key: String, _ label: String) -> some View {
         HStack(spacing: 3) {
             Text(key)
-                .font(.system(size: 10, weight: .medium, design: .monospaced))
-                .padding(.horizontal, 4).padding(.vertical, 1)
-                .background(Color.primary.opacity(0.07))
-                .clipShape(RoundedRectangle(cornerRadius: 3))
+                .font(.system(size: 10, weight: .light, design: .monospaced))
+                .foregroundStyle(Color.primary.opacity(0.65))
+                .lineLimit(1).fixedSize()
+                .padding(.horizontal, 4).padding(.vertical, 2)
+                .background(Color.primary.opacity(0.08))
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 4)
+                        .strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5)
+                )
             Text(label)
                 .font(.system(size: 10))
-                .foregroundStyle(.quaternary)
+                .foregroundStyle(Color.secondary.opacity(0.70))
+                .lineLimit(1).fixedSize()
         }
-        .foregroundStyle(.tertiary)
     }
 
     private func draw(_ points: [CGPoint], tool: ImageTool, color: Color, width: CGFloat, in context: inout GraphicsContext) {
